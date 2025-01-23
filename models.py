@@ -25,8 +25,8 @@ class Chapter(db.Model):
 
 class Quiz(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    date_of_quiz = db.Date(db.String(80), unique=False, nullable=False)
-    time_duration = db.Time(db.String(80), unique=False, nullable=False)
+    date_of_quiz = db.Column(db.Date(), unique=False, nullable=False)
+    time_duration = db.Column(db.Time, unique=False, nullable=False)
     Chapter_id = db.Column(db.Integer, db.ForeignKey('chapter.id'), nullable=False)
     questions = db.relationship('Question',backref='Quiz', lazy=True)
     scores = db.relationship('Scores', backref='Quiz', lazy=True)
@@ -35,14 +35,14 @@ class Question(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     Question = db.Column(db.String(80), unique=True, nullable=False)
     Option1 = db.Column(db.String(80), unique = True, nullable = False)
-    Answer = db.column(db.String(80), unique = True, nullable = False)
+    Answer = db.Column(db.String(80), unique = True, nullable = False)
     Quiz_id = db.Column(db.Integer, db.ForeignKey('quiz.id'), nullable = False)
 
 class Scores(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    time_stamp_of_quiz = db.Date(db.String(80), unique=False, nullable=False)
+    time_stamp_of_quiz = db.Column(db.Time, unique=False, nullable=False)
     total_scored = db.Column(db.Integer, unique=False, nullable=False)
-    User_id = db.Column(db.Integer, db.ForeignKey('user,id'), nullable = False)
+    User_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable = False)
     Quiz_id = db.Column(db.Integer, db.ForeignKey('quiz.id'), nullable = False)
 
 
