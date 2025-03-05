@@ -37,10 +37,10 @@ def home():
                 session['role'] = user.role
                 return redirect(url_for('dashboard'))
             else:
-                print('Incorrect password') # shld flash this
+                flash('Incorrect password') 
                 return redirect(url_for('home'))
         else:
-            print('User not found') # shld flash this
+            flash('User not found')
             return redirect(url_for('home'))
 
 
@@ -58,15 +58,15 @@ def register():
         confirm_password = request.form['confirm_password']
         user = User.query.filter_by(username=username).first()
         if user:
-            print('User already exists, please login') # shld flash this    
+            flash('User already exists, please login')    
             return redirect(url_for('home'))
         if confirm_password != password: 
-            print('Passwords do not match')
+            flash('Passwords do not match')
             return redirect(url_for('home'))
         new_user = User(name=name, username=username, password=password,confirm_password=confirm_password, qualification=qualification, dob=dob, role='user')
         db.session.add(new_user)
         db.session.commit()
-        print('User registered successfully')  # shld flash this   
+        flash('User registered successfully')  
         return redirect(url_for('dashboard'))
 
 # Route to render the dashboard 
@@ -104,25 +104,72 @@ def add_subject():
         role = session.get('role')
         if role == 'admin':
             if request.method == 'GET':
-                return render_template("subject.html")
+                return render_template("add_subject.html")
             elif request.method == 'POST':
                 name = request.form['name']
                 description = request.form['description']
                 subject = Subject.query.filter_by(name=name).first()
                 if subject:
-                    print('Subject already exists')
+                    flash('Subject already exists', 'warning')
                     return redirect(url_for('admin_dashboard'))
                 else:
                     new_subject = Subject(name=name, description=description)
                     db.session.add(new_subject)
                     db.session.commit()
-                    print('Subject added successfully')
+                    flash('Subject added successfully', 'success')
                     return redirect(url_for('admin_dashboard'))
             
 
         else:
-            flash('You are not authorized to view this page')
+            flash('You are not authorized to view this page', 'danger')
 
+# Route to edit a subject in admin dashboard
+@app.route("/edit_subject/<int:subject_id>", methods=['GET', 'POST'])
+def edit_subject(subject_id):
+    if 'user' in session:
+        role = session.get('role')
+        if role == 'admin':
+            if request.method == 'GET':
+                subject = Subject.query.get_or_404(subject_id)
+                return render_template("edit_subject.html", subject=subject)
+            elif request.method == 'POST':
+                name = request.form['name']
+                description = request.form['description']
+                subject = Subject.query.get_or_404(subject_id)
+                subject.name = name
+                subject.description = description
+                db.session.commit()
+                flash('Subject updated successfully', 'success')
+                return redirect(url_for('admin_dashboard'))
+        else:
+            flash('You are not authorized to view this page', 'danger')
+            return redirect(url_for('home'))
+    else:
+        flash('Please login to continue', 'alert')
+        return redirect(url_for('home'))
+
+# Route to delete a subject in admin dashboard
+@app.route("/delete_subject/<int:subject_id>", methods=['POST'])
+def delete_subject(subject_id):
+    if 'user' in session:
+        role = session.get('role')
+        if role == 'admin':
+            subject = Subject.query.get_or_404(subject_id)
+            
+            try:
+                db.session.delete(subject)
+                db.session.commit()
+                flash('Subject deleted successfully!', 'success')
+            except Exception as e:
+                db.session.rollback()
+                flash('An error occurred while deleting the subject.', 'danger')
+            return redirect(url_for('admin_dashboard'))
+        else:
+            flash('You are not authorized to perform this action.', 'warning')
+            return redirect(url_for('admin_dashboard'))
+    else:
+        flash('Please log in to continue.', 'danger')
+        return redirect(url_for('login'))
 
 
 
@@ -139,10 +186,10 @@ def add_chapter(subject_id=None):
                 if subject_id:
                     # If subject_id is provided in the URL, fetch the specific subject
                     subject = Subject.query.get_or_404(subject_id)
-                    return render_template("chapter.html", subject=subject, subjects=subjects)
+                    return render_template("add_chapter.html", subject=subject, subjects=subjects)
                 else:
                     # If no subject_id in the URL, just show the dropdown with all subjects
-                    return render_template("chapter.html", subjects=subjects)
+                    return render_template("add_chapter.html", subjects=subjects)
             elif request.method == 'POST':
                 name = request.form.get('name')
                 description = request.form.get('description')
@@ -151,28 +198,29 @@ def add_chapter(subject_id=None):
                 # Check if the chapter already exists
                 chapter = Chapter.query.filter_by(name=name, subject_id=subject_id).first()
                 if chapter:
-                    print('Chapter already exists')
+                    flash('Chapter already exists', 'warning')
                     return redirect(url_for('admin_dashboard'))
                 else:
                     new_chapter = Chapter(name=name, description=description, subject_id=subject_id)
                     db.session.add(new_chapter)
                     db.session.commit()
-                    print('Chapter added successfully')
+                    flash('Chapter added successfully', 'success')
                     return redirect(url_for('admin_dashboard'))
 
 # Route to edit a chapter in admin dashboard
-@app.route("/edit_chapter/<int:subject_id>", methods=['GET', 'POST'])
-def edit_chapter(subject_id):
+@app.route("/edit_chapter/<int:subject_id>/<int:chapter_id>", methods=['GET', 'POST'])
+def edit_chapter(subject_id, chapter_id):
     if 'user' in session:
         role = session.get('role')
         if role == 'admin':
             if request.method == 'GET':
-                chapter = Chapter.query.get_or_404(subject_id)
+                chapter = Chapter.query.filter_by(id=chapter_id, subject_id=subject_id).first_or_404()
                 return render_template("edit_chapter.html", chapter=chapter)
             elif request.method == 'POST':
                 name = request.form['name']
                 description = request.form['description']
-                chapter = Chapter.query.get_or_404(subject_id)
+
+                chapter = Chapter.query.filter_by(id=chapter_id, subject_id=subject_id).first_or_404()
                 
                 # Update chapter details
                 chapter.name = name
@@ -188,7 +236,6 @@ def edit_chapter(subject_id):
         return redirect(url_for('login'))
 
 # Route to delete a chapter in admin dashboard
-
 @app.route("/delete_chapter/<int:chapter_id>", methods=['POST'])
 def delete_chapter(chapter_id):
     if 'user' in session:
@@ -241,29 +288,28 @@ def add_quiz():
         if role == 'admin':
             if request.method == 'GET':
                 chapters = Chapter.query.all()
-                return render_template("add_quiz.html", chapters=chapters)
+                return render_template("add_quiz.html", chapters=chapters) 
             elif request.method == 'POST':
                 chapter_id = request.form['chapter_id']
+                name = request.form['name']
                 date_str = request.form['date']
                 date = datetime.strptime(date_str, '%Y-%m-%d').date()
                 duration_str = request.form['duration']
                 duration = datetime.strptime(duration_str, '%M:%S').time()
-                quiz = Quiz.query.filter_by(chapter_id=chapter_id).first()
+                quiz = Quiz.query.filter_by(chapter_id=chapter_id).first() 
                 if quiz:
                     flash('Quiz already exists')
                     return redirect(url_for('quiz_dashboard'))
                 else:
-                    new_quiz = Quiz(chapter_id=chapter_id, date=date, duration=duration)
+                    new_quiz = Quiz(chapter_id=chapter_id, name=name, date=date, duration=duration)
                     db.session.add(new_quiz)
                     db.session.commit()
                     print('Quiz added successfully')
                     return redirect(url_for('quiz_dashboard'))
-            
-
         else:
             flash('You are not authorized to view this page')
 
-# Route to add a question in quiz dashboard
+# Route to add a question in quiz dashboard 
 @app.route("/add_question", methods=['GET', 'POST'])
 @app.route("/add_question/<int:quiz_id>", methods=['GET', 'POST'])
 def add_question(quiz_id=None):
