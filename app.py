@@ -1,8 +1,9 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, session
 from models import db, User,Subject,Chapter,Quiz,Question,Scores
-from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.security import check_password_hash
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime
+from datetime import datetime, date
+from sqlalchemy.orm import joinedload
 
 app = Flask(__name__)
 
@@ -24,24 +25,23 @@ with app.app_context():
 # Route to render the login page
 @app.route("/", methods=['GET', 'POST'])
 def home():
-    if request.method == 'GET':
-        return render_template("index.html")
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password']
         
         user = User.query.filter_by(username=username).first()
-        if user:
-            if user.password == password:
-                session['user'] = user.username
-                session['role'] = user.role
-                return redirect(url_for('dashboard'))
-            else:
-                flash('Incorrect password') 
-                return redirect(url_for('home'))
-        else:
-            flash('User not found')
-            return redirect(url_for('home'))
+
+        if user and user.password == password:
+            session['user_id'] = user.id  
+            session['username'] = user.username
+            session['role'] = user.role
+            
+            flash('Login successful', 'success')
+            return redirect(url_for('dashboard'))  # Redirect to a role-based dashboard
+        
+        flash('Invalid username or password', 'danger')
+
+    return render_template("index.html")
 
 
 # Route to render the New user register template
@@ -62,32 +62,31 @@ def register():
             return redirect(url_for('home'))
         if confirm_password != password: 
             flash('Passwords do not match')
-            return redirect(url_for('home'))
+            return redirect(url_for('register'))
         new_user = User(name=name, username=username, password=password,confirm_password=confirm_password, qualification=qualification, dob=dob, role='user')
         db.session.add(new_user)
         db.session.commit()
         flash('User registered successfully')  
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('user_dashboard'))
 
 # Route to render the dashboard 
 @app.route("/dashboard", methods=['GET', 'POST'])
 def dashboard():
-    if 'user' in session: # the user is a key in the session dictionary, if it is present, the user is logged in
+    if 'user_id' in session:
         role = session.get('role')
         if role == 'admin':
             return redirect(url_for('admin_dashboard'))
-        else:
-            return render_template("user_dashboard.html")
-    else:
-        flash('Please login to continue')
-        return redirect(url_for('home'))
-
+        elif role == 'user':
+            return redirect(url_for('user_dashboard'))
+    
+    flash('Please login to continue', 'warning')
+    return redirect(url_for('home'))
 # -----------------admin dashboard routes-----------------
 
 # Route to render the admin dashboard
 @app.route("/admin_dashboard", methods=['GET', 'POST'])
 def admin_dashboard():
-    if 'user' in session:
+    if 'user_id' in session:
         role = session.get('role')
         if role == 'admin':
             subjects = Subject.query.all()
@@ -98,11 +97,19 @@ def admin_dashboard():
     else:
         flash('Please login to continue')
         return redirect(url_for('home'))
+
+# Route to logout
+@app.route("/logout")
+def logout():
+    session.pop('user_id', None)
+    session.pop('role', None)
+    flash('You have been logged out')
+    return redirect(url_for('home'))
         
 # Route to add a subject in admin dashboard
 @app.route("/add_subject", methods=['GET', 'POST'])
 def add_subject():
-    if 'user' in session:
+    if 'user_id' in session:
         role = session.get('role')
         if role == 'admin':
             if request.method == 'GET':
@@ -122,11 +129,10 @@ def add_subject():
                     return redirect(url_for('admin_dashboard'))
         else:
             flash('You are not authorized to view this page', 'danger')
-
 # Route to edit a subject in admin dashboard                                                   
 @app.route("/edit_subject/<int:subject_id>", methods=['GET', 'POST'])
 def edit_subject(subject_id):
-    if 'user' in session:
+    if 'user_id' in session:
         role = session.get('role')
         if role == 'admin': 
             if request.method == 'GET':
@@ -151,7 +157,7 @@ def edit_subject(subject_id):
 # Route to delete a subject in admin dashboard
 @app.route("/delete_subject/<int:subject_id>", methods=['POST'])
 def delete_subject(subject_id):
-    if 'user' in session:
+    if 'user_id' in session:
         role = session.get('role')
         if role == 'admin':
             subject = Subject.query.get_or_404(subject_id)
@@ -174,7 +180,7 @@ def delete_subject(subject_id):
 @app.route("/add_chapter", methods=['GET', 'POST'])
 @app.route("/add_chapter/<int:subject_id>", methods=['GET', 'POST'])
 def add_chapter(subject_id=None):
-    if 'user' in session:
+    if 'user_id' in session:
         role = session.get('role')
         if role == 'admin':
             if request.method == 'GET':
@@ -206,7 +212,7 @@ def add_chapter(subject_id=None):
 # Route to edit a chapter in admin dashboard
 @app.route("/edit_chapter/<int:subject_id>/<int:chapter_id>", methods=['GET', 'POST'])
 def edit_chapter(subject_id, chapter_id):
-    if 'user' in session:
+    if 'user_id' in session:
         role = session.get('role')
         if role == 'admin':
             if request.method == 'GET':
@@ -234,7 +240,7 @@ def edit_chapter(subject_id, chapter_id):
 # Route to delete a chapter in admin dashboard
 @app.route("/delete_chapter/<int:chapter_id>", methods=['POST'])
 def delete_chapter(chapter_id):
-    if 'user' in session:
+    if 'user_id' in session:
         role = session.get('role')
         if role == 'admin':
             chapter = Chapter.query.get_or_404(chapter_id)
@@ -259,7 +265,7 @@ def delete_chapter(chapter_id):
 # Route for quiz dashboard
 @app.route("/quiz_dashboard", methods=['GET', 'POST'])
 def quiz_dashboard():
-    if 'user' in session:
+    if 'user_id' in session:
         role = session.get('role')
         if role == 'admin':
             quizzes = Quiz.query.all()
@@ -275,85 +281,109 @@ def quiz_dashboard():
 @app.route("/add_quiz", methods=['GET', 'POST'])
 @app.route("/add_quiz/<int:chapter_id>", methods=['GET', 'POST'])
 def add_quiz(chapter_id=None):
-    if 'user' in session:
-        role = session.get('role')
-        if role == 'admin':
-            chapters = Chapter.query.all()
-            chapter = Chapter.query.get(chapter_id) if chapter_id else None
+    if 'user_id' not in session:
+        flash('Please log in to continue.', 'danger')
+        return redirect(url_for('home'))
 
-            if request.method == 'POST':
-                name = request.form['name']
-                date_str = request.form['date']
-                date = datetime.strptime(date_str, '%Y-%m-%d').date()
-                chapter_id = request.form.get('chapter_id') or chapter_id
-
-                if not chapter_id:
-                    flash('Please select a chapter.', 'warning')
-                    return redirect(url_for('add_quiz'))
-
-                existing_quiz = Quiz.query.filter_by(chapter_id=chapter_id).first()
-                if existing_quiz:
-                    flash('Quiz already exists for this chapter', 'warning')
-                    return redirect(url_for('quiz_dashboard'))
-
-                new_quiz = Quiz(chapter_id=chapter_id, name=name, date=date)
-                db.session.add(new_quiz)
-                db.session.commit()
-                flash('Quiz added successfully!', 'success')
-                return redirect(url_for('quiz_dashboard'))
-
-            return render_template("add_quiz.html", chapters=chapters, chapter=chapter)
-
+    if session.get('role') != 'admin':
         flash('You are not authorized to perform this action.', 'warning')
         return redirect(url_for('quiz_dashboard'))
-    
-    flash('Please log in to continue.', 'danger')
-    return redirect(url_for('login'))
+
+    chapters = Chapter.query.all()
+    chapter = Chapter.query.get(chapter_id) if chapter_id else None
+
+    if request.method == 'POST':
+        name = request.form['name']
+        date_str = request.form['date']
+        time_duration_str = request.form['time_duration']
+        level = request.form['level']
+        chapter_id = request.form.get('chapter_id') or chapter_id
+
+        if not chapter_id:
+            flash('Please select a chapter.', 'warning')
+            return redirect(url_for('add_quiz'))
+
+        # Convert strings to correct formats
+        date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        time_duration = datetime.strptime(time_duration_str, '%H:%M').time()
+
+        # Check if a quiz with the same chapter already exists
+        existing_quiz = Quiz.query.filter_by(chapter_id=chapter_id, name=name).first()
+        if existing_quiz:
+            flash('Quiz already exists for this chapter.', 'warning')
+            return redirect(url_for('quiz_dashboard'))
+
+        # Create a new quiz instance
+        new_quiz = Quiz(
+            name=name,
+            date=date,
+            time_duration=time_duration,
+            level=level,
+            chapter_id=chapter_id
+        )
+        db.session.add(new_quiz)
+        db.session.commit()
+        flash('Quiz added successfully!', 'success')
+        return redirect(url_for('quiz_dashboard'))
+
+    return render_template("add_quiz.html", chapters=chapters, chapter=chapter)
 
 
-
-# Route to edit a quiz in quiz dashboard                                                  
+# Route to edit a quiz in quiz dashboard
 @app.route("/edit_quiz/<int:quiz_id>", methods=['GET', 'POST'])
 def edit_quiz(quiz_id):
-    if 'user' in session:
-        role = session.get('role')
-        if role == 'admin':
-            quiz = Quiz.query.get(quiz_id)
-            if not quiz:
-                flash("Quiz not found", "danger")
-                return redirect(url_for("quiz_dashboard"))
-
-            if request.method == 'POST':
-                chapter_id = request.form['chapter_id']
-                name = request.form['name']
-                date_str = request.form['date']
-
-                try:
-                    quiz.chapter_id = int(chapter_id)
-                    quiz.name = name
-                    quiz.date = datetime.strptime(date_str, '%Y-%m-%d').date()
-
-                    db.session.commit()
-                    flash("Quiz updated successfully", "success")
-                    return redirect(url_for('quiz_dashboard'))
-
-                except ValueError:
-                    flash("Invalid input format. Ensure date is YYYY-MM-DD", "danger")
-
-            chapters = Chapter.query.all()  # Fetch all chapters for dropdown
-            return render_template("edit_quiz.html", quiz=quiz, chapters=chapters)
-
-        else:
-            flash("You are not authorized to edit quizzes", "danger")
-            return redirect(url_for("quiz_dashboard"))
-    else:
+    if 'user_id' not in session:
         flash("Please log in to access this page", "warning")
         return redirect(url_for("login"))
+
+    if session.get('role') != 'admin':
+        flash("You are not authorized to edit quizzes", "danger")
+        return redirect(url_for("quiz_dashboard"))
+
+    quiz = Quiz.query.get_or_404(quiz_id)  # Automatically handles "not found" case
+    chapters = Chapter.query.all()  # Fetch all chapters for dropdown
+
+    if request.method == 'POST':
+        chapter_id = request.form.get('chapter_id')
+        name = request.form.get('name')
+        date_str = request.form.get('date')
+        time_duration_str = request.form.get('time_duration')
+        level = request.form.get('level')
+
+        # Validate inputs
+        if not chapter_id or not name or not date_str or not time_duration_str or not level:
+            flash("All fields are required.", "danger")
+            return redirect(url_for('edit_quiz', quiz_id=quiz.id))
+
+        try:
+            # Convert date (YYYY-MM-DD)
+            quiz.date = datetime.strptime(date_str, '%Y-%m-%d').date()
+        except ValueError:
+            flash("Invalid date format. Please use YYYY-MM-DD.", "danger")
+            return redirect(url_for('edit_quiz', quiz_id=quiz.id))
+
+        try:
+            # Convert time (HH:MM)
+            quiz.time_duration = datetime.strptime(time_duration_str, '%H:%M').time()
+        except ValueError:
+            flash("Invalid time format. Please use HH:MM.", "danger")
+            return redirect(url_for('edit_quiz', quiz_id=quiz.id))
+
+        # Update quiz details
+        quiz.chapter_id = int(chapter_id)
+        quiz.name = name
+        quiz.level = level
+
+        db.session.commit()
+        flash("Quiz updated successfully!", "success")
+        return redirect(url_for('quiz_dashboard'))
+
+    return render_template("edit_quiz.html", quiz=quiz, chapters=chapters)
 
 # Route to delete a quiz in quiz dashboard 
 @app.route("/delete_quiz/<int:quiz_id>", methods=['POST'])
 def delete_quiz(quiz_id):
-    if 'user' in session:
+    if 'user_id' in session:
         role = session.get('role')
         if role == 'admin':
             quiz = Quiz.query.get_or_404(quiz_id)
@@ -376,7 +406,7 @@ def delete_quiz(quiz_id):
 @app.route("/add_question", methods=['GET', 'POST'])
 @app.route("/add_question/<int:quiz_id>", methods=['GET', 'POST'])
 def add_question(quiz_id=None):
-    if 'user' in session:
+    if 'user_id' in session:
         role = session.get('role')
         if role == 'admin':
             quizzes = Quiz.query.all()
@@ -431,7 +461,7 @@ def add_question(quiz_id=None):
 # Route to edit a question
 @app.route("/edit_question/<int:question_id>", methods=['GET', 'POST'])
 def edit_question(question_id):
-    if 'user' in session:
+    if 'user_id' in session:
         role = session.get('role')
         if role == 'admin':
             question = Question.query.get_or_404(question_id)
@@ -469,7 +499,7 @@ def edit_question(question_id):
 # Route to delete a question
 @app.route("/delete_question/<int:question_id>", methods=['POST'])
 def delete_question(question_id):
-    if 'user' in session:
+    if 'user_id' in session:
         role = session.get('role')
         if role == 'admin':
             question = Question.query.get_or_404(question_id)
@@ -496,7 +526,7 @@ def delete_question(question_id):
 # Route to add summary in admin dashboard
 @app.route("/admin_summary")
 def admin_summary():
-    if "user" in session and session.get("role") == "admin":
+    if "user_id" in session and session.get("role") == "admin":
         quiz_data = (
             db.session.query(
                 Quiz.name,
@@ -519,9 +549,148 @@ def admin_summary():
             attempts=attempts
         )
 
+# -------------------------user dashboard routes-------------------------
+# Route to render the user dashboard
+@app.route("/user_dashboard", methods=['GET'])
+def user_dashboard():
+    if 'user_id' not in session:
+        flash("Please log in to continue", "warning")
+        return redirect(url_for("home"))
+
+    user_id = session.get('user_id')
+    user = User.query.get(user_id)  # Fetch the user object
+
+    if not user:
+        flash("User not found!", "danger")
+        return redirect(url_for("home"))
+
+    # Fetch all quiz scores of the user
+    user_scores = Scores.query.filter_by(user_id=user_id).all()
+    
+    # Convert list into dictionary {quiz_id: score_object}
+    scores_dict = {score.quiz_id: score for score in user_scores}
+
+    # Get completed quizzes
+    completed_quiz_ids = list(scores_dict.keys())
+    completed_quizzes = Quiz.query.filter(Quiz.id.in_(completed_quiz_ids)).all()
+
+    # Get upcoming quizzes
+    upcoming_quizzes = Quiz.query.filter(~Quiz.id.in_(completed_quiz_ids), Quiz.date >= date.today()).all()
+
+    return render_template(
+        "user_dashboard.html",
+        user=user,  # Pass the user object
+        upcoming_quizzes=upcoming_quizzes,
+        completed_quizzes=completed_quizzes,
+        scores=scores_dict
+    )
+
+# Route to view the quiz details
+@app.route("/view_quiz/<int:quiz_id>")
+def view_quiz(quiz_id):
+    if 'user_id' not in session:
+        flash("Please log in to view the quiz.", "warning")
+        return redirect(url_for("login"))
+
+    quiz = Quiz.query.get_or_404(quiz_id)
+    chapter = Chapter.query.get(quiz.chapter_id)  # Get chapter details
+
+    return render_template("view_quiz.html", quiz=quiz, chapter=chapter)
+
+# Route to start a quiz
+@app.route("/start_quiz/<int:quiz_id>", methods=['GET', 'POST'])
+def start_quiz(quiz_id):
+    if 'user_id' not in session:
+        flash("Please log in to start the quiz.", "warning")
+        return redirect(url_for("home"))
+
+    user_id = session.get('user_id')
+    quiz = Quiz.query.get_or_404(quiz_id)
+    questions = Question.query.filter_by(quiz_id=quiz.id).all()
+
+    if not questions:
+        flash("No questions available for this quiz.", "danger")
+        return redirect(url_for("user_dashboard"))
+
+    q_index = int(request.args.get('q_index', 0))  # Get the current question index
+
+    if q_index >= len(questions):  # If all questions are done
+        flash("Quiz completed! Click 'Complete Quiz' to submit your answers.", "success")
+        return redirect(url_for("submit_quiz", quiz_id=quiz_id))
+
+    question = questions[q_index]
+
+    if request.method == 'POST':
+        selected_option = request.form.get('option')
+        
+        if not selected_option:
+            flash("Please select an answer before proceeding.", "warning")
+            return redirect(url_for("start_quiz", quiz_id=quiz_id, q_index=q_index))
+
+        # Store the answer in the session
+        if 'quiz_answers' not in session:
+            session['quiz_answers'] = {}
+
+        session['quiz_answers'][str(question.id)] = selected_option
+
+        # Move to the next question
+        return redirect(url_for("start_quiz", quiz_id=quiz_id, q_index=q_index + 1))
+
+    return render_template("start_quiz.html", quiz=quiz, question=question, q_num=q_index + 1, total_q=len(questions))
 
 
- 
+
+# Route to submit a quiz
+@app.route("/submit_quiz/<int:quiz_id>", methods=['GET','POST'])
+def submit_quiz(quiz_id):
+    if 'user_id' not in session:
+        flash("Please log in to submit the quiz.", "warning")
+        return redirect(url_for("login"))
+
+    user_id = session.get('user_id')
+
+    # Calculate score (dummy logic for now)
+    user_answers = session.get('quiz_answers', {})
+    total_questions = len(user_answers)
+    correct_answers = sum(1 for q_id, ans in user_answers.items() if is_correct_answer(q_id, ans))
+
+    # Store attempt in Scores table
+    new_score = Scores(
+        time_stamp_of_quiz=datetime.now(),  # Store full DateTime
+        total_scored=correct_answers,
+        user_id=user_id,
+        quiz_id=quiz_id
+    )
+    db.session.add(new_score)
+    db.session.commit()
+
+    # Clear quiz session data
+    session.pop('quiz_answers', None)
+
+    flash(f"Quiz submitted! You scored {correct_answers}/{total_questions}.", "success")
+    return redirect(url_for("user_dashboard"))
+
+
+# Route to view the quiz scores
+@app.route("/scores", methods=['GET'])
+def scores():
+    if 'user' not in session:
+        flash("Please log in to view scores.", "warning")
+        return redirect(url_for("home"))
+
+    user_id = session.get('user_id')
+
+    # Get sorting preference (default is 'date')
+    sort_by = request.args.get('sort_by', 'date')
+
+    # Fetch all user attempts
+    if sort_by == 'score':
+        user_scores = Scores.query.filter_by(user_id=user_id).order_by(Scores.total_scored.desc()).all()
+    else:  # Default: Sort by date (latest first)
+        user_scores = Scores.query.filter_by(user_id=user_id).order_by(Scores.time_stamp_of_quiz.desc()).all()
+
+    return render_template("scores.html", scores=user_scores, sort_by=sort_by)
+
 
 if __name__ == "__main__":
     app.run(debug=True)

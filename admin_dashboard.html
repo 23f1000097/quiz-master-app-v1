@@ -120,7 +120,9 @@
             <div>
                 <a href="{{ url_for('admin_dashboard') }}">Home</a>
                 <a href="{{ url_for('quiz_dashboard') }}">Quiz</a>
-                <a href="{{ url_for('add_summary') }}">Summary</a>
+                <a href="{{ url_for('admin_summary') }}">Summary</a>
+                <a href="{{ url_for('logout') }}">Logout</a>
+                
             </div>
             <form class="d-flex" action="{{ url_for('admin_dashboard') }}" method="GET">
                 <input class="form-control me-2" type="search" placeholder="Search" aria-label="Search" name="search">
@@ -156,7 +158,6 @@
                             <tr>
                                 <th>Chapter Name</th>
                                 <th>Description</th>
-                                <th>No. of Questions</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
@@ -165,7 +166,6 @@
                             <tr>
                                 <td>{{ chapter.name }}</td>
                                 <td>{{ chapter.description }}</td>
-                                <td>{{ chapter.questions|length if chapter.questions else 0 }}</td>
                                 <td>
                                     <a href="{{ url_for('edit_chapter', chapter_id=chapter.id, subject_id=subject.id) }}"
                                         class="btn btn-sm btn-success">Edit Chapter</a>
