@@ -1,14 +1,17 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from models import db, User,Subject,Chapter,Quiz,Question,Scores
 from werkzeug.security import check_password_hash
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, date
 from sqlalchemy.orm import joinedload
+from sqlalchemy import func, create_engine, or_
+
 
 app = Flask(__name__)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///trishaa.sqlite'
 app.config['SECRET_KEY'] = 'my_secret_key'
+
 db.init_app(app)
 
 def create_admin():
@@ -106,6 +109,69 @@ def logout():
     flash('You have been logged out')
     return redirect(url_for('home'))
         
+
+# Route to search in admin dashboard
+@app.route("/admin_search", methods=['GET', 'POST'])
+def admin_search():
+    if 'user_id' not in session:
+        return redirect(url_for('login'))
+    
+    user = User.query.get(session['user_id'])
+    if not user or user.role != 'admin':
+        return redirect(url_for('admin_login'))
+
+    query = request.args.get('query', '').strip()
+    results = []
+
+    if query:
+        # Search Users
+        user_results = User.query.filter(
+            or_(
+                User.username.ilike(f'%{query}%'),
+                User.name.ilike(f'%{query}%'),
+                User.qualification.ilike(f'%{query}%'),
+                User.role.ilike(f'%{query}%')
+            )
+        ).all()
+
+        for user in user_results:
+            results.append({
+                'table': 'Users',
+                'id': user.id,
+                'details': f"{user.username} - {user.name} ({user.role})"
+            })
+
+        # Search Subjects
+        subject_results = Subject.query.filter(
+            or_(
+                Subject.name.ilike(f'%{query}%'),
+                Subject.description.ilike(f'%{query}%')
+            )
+        ).all()
+
+        for subject in subject_results:
+            results.append({
+                'table': 'Subjects',
+                'id': subject.id,
+                'details': f"{subject.name} - {subject.description[:50]}"
+            })
+
+        # Search Quizzes
+        quiz_results = Quiz.query.filter(
+            or_(
+                Quiz.name.ilike(f'%{query}%'),
+                Quiz.level.ilike(f'%{query}%')
+            )
+        ).all()
+
+        for quiz in quiz_results:
+            results.append({
+                'table': 'Quizzes',
+                'id': quiz.id,
+                'details': f"{quiz.name} - Level: {quiz.level}"
+            })
+
+    return render_template('admin_dashboard.html', results=results, search_query=query)
 # Route to add a subject in admin dashboard
 @app.route("/add_subject", methods=['GET', 'POST'])
 def add_subject():
@@ -526,170 +592,267 @@ def delete_question(question_id):
 # Route to add summary in admin dashboard
 @app.route("/admin_summary")
 def admin_summary():
-    if "user_id" in session and session.get("role") == "admin":
-        quiz_data = (
-            db.session.query(
-                Quiz.name,
-                db.func.max(QuizAttempt.score).label("top_score"),
-                db.func.count(QuizAttempt.id).label("attempts"),
-            )
-            .join(QuizAttempt, Quiz.id == QuizAttempt.quiz_id)
-            .group_by(Quiz.id)
-            .all()
-        )
-
-        subjects = [quiz.name for quiz in quiz_data]
-        top_scores = [quiz.top_score for quiz in quiz_data]
-        attempts = [quiz.attempts for quiz in quiz_data]
-
-        return render_template(
-            "admin_summary.html",
-            subjects=subjects,
-            top_scores=top_scores,
-            attempts=attempts
-        )
-
-# -------------------------user dashboard routes-------------------------
-# Route to render the user dashboard
-@app.route("/user_dashboard", methods=['GET'])
-def user_dashboard():
-    if 'user_id' not in session:
-        flash("Please log in to continue", "warning")
+    if "user_id" not in session or session.get("role") != "admin":
+        flash("Access denied. Please log in as an admin.", "danger")
         return redirect(url_for("home"))
 
-    user_id = session.get('user_id')
-    user = User.query.get(user_id)  # Fetch the user object
-
-    if not user:
-        flash("User not found!", "danger")
-        return redirect(url_for("home"))
-
-    # Fetch all quiz scores of the user
-    user_scores = Scores.query.filter_by(user_id=user_id).all()
-    
-    # Convert list into dictionary {quiz_id: score_object}
-    scores_dict = {score.quiz_id: score for score in user_scores}
-
-    # Get completed quizzes
-    completed_quiz_ids = list(scores_dict.keys())
-    completed_quizzes = Quiz.query.filter(Quiz.id.in_(completed_quiz_ids)).all()
-
-    # Get upcoming quizzes
-    upcoming_quizzes = Quiz.query.filter(~Quiz.id.in_(completed_quiz_ids), Quiz.date >= date.today()).all()
-
-    return render_template(
-        "user_dashboard.html",
-        user=user,  # Pass the user object
-        upcoming_quizzes=upcoming_quizzes,
-        completed_quizzes=completed_quizzes,
-        scores=scores_dict
+    # Fetch quiz data with top scores and attempt counts
+    quiz_data = (
+        db.session.query(
+            Quiz.name,
+            func.max(Scores.total_scored).label("top_score"),  # Changed from QuizAttempt to Scores
+            func.count(Scores.id).label("attempts"),  # Changed from QuizAttempt to Scores
+        )
+        .join(Scores, Quiz.id == Scores.quiz_id)  # Corrected the join to Scores
+        .group_by(Quiz.id)
+        .all()
     )
 
-# Route to view the quiz details
-@app.route("/view_quiz/<int:quiz_id>")
-def view_quiz(quiz_id):
+    # Ensure there is no None value before passing to JSON
+    subjects = [quiz.name if quiz.name else "Unknown" for quiz in quiz_data]
+    top_scores = [quiz.top_score if quiz.top_score is not None else 0 for quiz in quiz_data]
+    attempts = [quiz.attempts if quiz.attempts is not None else 0 for quiz in quiz_data]
+
+    return render_template(
+        "admin_summary.html",
+        subjects=subjects,
+        top_scores=top_scores,
+        attempts=attempts
+    )
+
+# -------------------------user dashboard routes-------------------------
+
+# Route to render the user dashboard
+@app.route("/user_dashboard", methods=['GET', 'POST'])
+def user_dashboard():
+    # Fetch user details from session
+    user_id = session.get('user_id')
+    user = db.session.get(User, user_id) if user_id else None
+
+    # Fetch all quizzes
+    quizzes = Quiz.query.all()
+
+    # Fetch scores and filter completed quizzes
+    user_scores = {score.quiz_id: score for score in Scores.query.filter_by(user_id=user_id).all()} if user_id else {}
+    completed_quizzes = Quiz.query.filter(Quiz.id.in_(user_scores.keys())).all()
+    
+    # Fetch upcoming quizzes (not in completed_quizzes)
+    upcoming_quizzes = Quiz.query.filter(~Quiz.id.in_(user_scores.keys())).all()
+
+    # Calculate number of questions per quiz
+    no_of_ques = {quiz.id: Question.query.filter_by(quiz_id=quiz.id).count() for quiz in quizzes}
+
+    # Print debug info
+    print("Completed Quizzes:", [quiz.id for quiz in completed_quizzes])
+    print("Upcoming Quizzes:", [quiz.id for quiz in upcoming_quizzes])
+
+    # Render the template with required data
+    return render_template(
+        "user_dashboard.html",
+        user=user,
+        upcoming_quizzes=upcoming_quizzes,
+        completed_quizzes=completed_quizzes,
+        no_of_ques=no_of_ques,
+        user_scores=user_scores  # Pass scores to use in template
+    )
+
+# Route to search un user dashboard
+@app.route('/user_search')
+def user_search():
     if 'user_id' not in session:
-        flash("Please log in to view the quiz.", "warning")
-        return redirect(url_for("login"))
+        return redirect(url_for('login'))
 
-    quiz = Quiz.query.get_or_404(quiz_id)
-    chapter = Chapter.query.get(quiz.chapter_id)  # Get chapter details
+    user = User.query.get(session['user_id'])
+    if not user or user.role != 'user':
+        return redirect(url_for('user_login'))
 
-    return render_template("view_quiz.html", quiz=quiz, chapter=chapter)
+    query = request.args.get('query', '').strip()
+    results = []
+
+    if query:
+        # Search Subjects
+        subject_results = Subject.query.filter(
+            or_(
+                Subject.name.ilike(f'%{query}%'),
+                Subject.description.ilike(f'%{query}%')
+            )
+        ).all()
+
+        for subject in subject_results:
+            results.append({
+                'table': 'Subjects',
+                'id': subject.id,
+                'details': f"{subject.name} - {subject.description[:50]}"
+            })
+
+        # Search Quizzes
+        quiz_results = Quiz.query.filter(
+            or_(
+                Quiz.name.ilike(f'%{query}%'),
+                Quiz.level.ilike(f'%{query}%')
+            )
+        ).all()
+
+        for quiz in quiz_results:
+            results.append({
+                'table': 'Quizzes',
+                'id': quiz.id,
+                'details': f"{quiz.name} - Level: {quiz.level}"
+            })
+
+    return render_template('user_dashboard.html', results=results, search_query=query, user=user)
+    
+@app.route("/view_quiz/<int:quiz_id>", methods=['GET'])
+def view_quiz(quiz_id):
+    # Check if user is logged in
+    if 'user_id' in session:
+        user_id = session['user_id']
+        
+        # Fetch quiz details by ID
+        quiz = Quiz.query.get_or_404(quiz_id)
+        
+        # Fetch all questions associated with the quiz
+        questions = Question.query.filter_by(quiz_id=quiz_id).all()
+        
+        # Assuming there is a relationship between Quiz and Chapter
+        chapter = quiz.chapter
+
+        return render_template(
+            "view_quiz.html",
+            quiz=quiz,
+            questions=questions,
+            chapter=chapter  # Pass chapter to template
+        )
+    else:
+        flash("Please log in to view the quiz.", "danger")
+        return redirect(url_for('home'))
 
 # Route to start a quiz
 @app.route("/start_quiz/<int:quiz_id>", methods=['GET', 'POST'])
 def start_quiz(quiz_id):
-    if 'user_id' not in session:
-        flash("Please log in to start the quiz.", "warning")
-        return redirect(url_for("home"))
+    if 'user_id' in session:
+        user_id = session['user_id']
+        quiz = Quiz.query.get_or_404(quiz_id)  # Fetch quiz by ID
+        questions = Question.query.filter_by(quiz_id=quiz_id).all()  # Fetch all questions
 
-    user_id = session.get('user_id')
-    quiz = Quiz.query.get_or_404(quiz_id)
-    questions = Question.query.filter_by(quiz_id=quiz.id).all()
+        if request.method == 'POST':
+            # Handle quiz submission
+            answers = request.form  # Get submitted answers
+            score = 0
 
-    if not questions:
-        flash("No questions available for this quiz.", "danger")
-        return redirect(url_for("user_dashboard"))
+            # Calculate the score
+            for question in questions:
+                user_answer = answers.get(f"question_{question.id}")  # User-selected answer text
+                correct_option_label = None
 
-    q_index = int(request.args.get('q_index', 0))  # Get the current question index
+                # Map the selected answer text to the corresponding option label
+                if user_answer == question.option1:
+                    correct_option_label = "option1"
+                elif user_answer == question.option2:
+                    correct_option_label = "option2"
+                elif user_answer == question.option3:
+                    correct_option_label = "option3"
+                elif user_answer == question.option4:
+                    correct_option_label = "option4"
 
-    if q_index >= len(questions):  # If all questions are done
-        flash("Quiz completed! Click 'Complete Quiz' to submit your answers.", "success")
-        return redirect(url_for("submit_quiz", quiz_id=quiz_id))
+                print(f"Question ID: {question.id}, User Answer: {user_answer}, Mapped Option: {correct_option_label}, Correct Answer: {question.answer}")
 
-    question = questions[q_index]
+                # Compare the mapped option label with the stored correct answer
+                if correct_option_label and correct_option_label == question.answer:
+                    score += 1
 
-    if request.method == 'POST':
-        selected_option = request.form.get('option')
+            # Save the score in the Scores table
+            score_entry = Scores.query.filter_by(user_id=user_id, quiz_id=quiz_id).first()
+            if score_entry:
+                score_entry.total_scored = score
+                score_entry.completed = True
+            else:
+                new_score = Scores(
+                    time_stamp_of_quiz=datetime.now(),
+                    total_scored=score,
+                    date_taken=date.today(),
+                    user_id=user_id,
+                    quiz_id=quiz_id,
+                    completed=True
+                )
+                db.session.add(new_score)
+
+            db.session.commit()
+            flash(f"You scored {score}/{len(questions)}!", "success")
+            return redirect(url_for('user_dashboard'))
+
+        return render_template(
+            "start_quiz.html",
+            quiz=quiz,
+            questions=questions
+        )
+    else:
+        flash("Please log in to start the quiz.", "danger")
+        return redirect(url_for('home'))
+
+
+# Route to scores dashboard
+@app.route("/scores_dashboard", methods=['GET'])
+def scores_dashboard():
+    if 'user_id' in session:
+        user_id = session['user_id']
+
+        # Fetch user details
+        user = User.query.get(user_id)  # Fetch user object
         
-        if not selected_option:
-            flash("Please select an answer before proceeding.", "warning")
-            return redirect(url_for("start_quiz", quiz_id=quiz_id, q_index=q_index))
+        # Fetch completed quiz scores for the logged-in user
+        user_scores = Scores.query.filter_by(user_id=user_id, completed=True).order_by(Scores.date_taken.desc()).all()
+        
+        # Fetch quiz details
+        quiz_info = {quiz.id: (quiz.name, Question.query.filter_by(quiz_id=quiz.id).count()) for quiz in Quiz.query.all()}
+        
+        # Create list of tuples (score object, number of questions)
+        scores_data = [(score, quiz_info.get(score.quiz_id, ("Unknown Quiz", 0))) for score in user_scores]
 
-        # Store the answer in the session
-        if 'quiz_answers' not in session:
-            session['quiz_answers'] = {}
-
-        session['quiz_answers'][str(question.id)] = selected_option
-
-        # Move to the next question
-        return redirect(url_for("start_quiz", quiz_id=quiz_id, q_index=q_index + 1))
-
-    return render_template("start_quiz.html", quiz=quiz, question=question, q_num=q_index + 1, total_q=len(questions))
+        return render_template("scores_dashboard.html", scores_data=scores_data, user=user)  # Pass user object
+    
+    else:
+        flash("Please log in to view your scores.", "danger")
+        return redirect(url_for('home'))
 
 
-
-# Route to submit a quiz
-@app.route("/submit_quiz/<int:quiz_id>", methods=['GET','POST'])
-def submit_quiz(quiz_id):
+#Route to render user summary
+@app.route("/user_summary", methods=['GET', 'POST'])
+def user_summary():
     if 'user_id' not in session:
-        flash("Please log in to submit the quiz.", "warning")
-        return redirect(url_for("login"))
+        return redirect(url_for('user_login'))
 
     user_id = session.get('user_id')
+    user = User.query.get(user_id)
 
-    # Calculate score (dummy logic for now)
-    user_answers = session.get('quiz_answers', {})
-    total_questions = len(user_answers)
-    correct_answers = sum(1 for q_id, ans in user_answers.items() if is_correct_answer(q_id, ans))
+    if user.role != 'user':
+        return redirect(url_for('user_login'))
 
-    # Store attempt in Scores table
-    new_score = Scores(
-        time_stamp_of_quiz=datetime.now(),  # Store full DateTime
-        total_scored=correct_answers,
-        user_id=user_id,
-        quiz_id=quiz_id
-    )
-    db.session.add(new_score)
-    db.session.commit()
+    # Fetch the number of quizzes per subject
+    no_of_quizzes = db.session.query(
+        Subject.name,
+        func.count(Quiz.id).label('quiz_count')
+    ).join(Chapter, Subject.id == Chapter.subject_id) \
+    .join(Quiz, Chapter.id == Quiz.chapter_id) \
+    .group_by(Subject.name).all()
 
-    # Clear quiz session data
-    session.pop('quiz_answers', None)
+    # Convert data into JSON serializable format
+    bar_data = [{"subject_name": subject.name, "No_of_Quizes": subject.quiz_count}
+                for subject in no_of_quizzes] if no_of_quizzes else []  # Ensure `bar_data` is at least an empty list
 
-    flash(f"Quiz submitted! You scored {correct_answers}/{total_questions}.", "success")
-    return redirect(url_for("user_dashboard"))
+    # Fetch quiz attempts per user
+    quizzes_attempted = db.session.query(
+        Quiz.id.label('quiz_id'),
+        func.count(Scores.id).label('attempt_count')
+    ).join(Scores, Scores.quiz_id == Quiz.id) \
+    .filter(Scores.user_id == user_id) \
+    .group_by(Quiz.id) \
+    .all()
 
+    # Prepare data for the pie chart
+    pie_data = [{"quiz_id": quiz.quiz_id, "attempt_count": quiz.attempt_count} for quiz in quizzes_attempted] if quizzes_attempted else []
 
-# Route to view the quiz scores
-@app.route("/scores", methods=['GET'])
-def scores():
-    if 'user' not in session:
-        flash("Please log in to view scores.", "warning")
-        return redirect(url_for("home"))
-
-    user_id = session.get('user_id')
-
-    # Get sorting preference (default is 'date')
-    sort_by = request.args.get('sort_by', 'date')
-
-    # Fetch all user attempts
-    if sort_by == 'score':
-        user_scores = Scores.query.filter_by(user_id=user_id).order_by(Scores.total_scored.desc()).all()
-    else:  # Default: Sort by date (latest first)
-        user_scores = Scores.query.filter_by(user_id=user_id).order_by(Scores.time_stamp_of_quiz.desc()).all()
-
-    return render_template("scores.html", scores=user_scores, sort_by=sort_by)
+    return render_template('user_summary.html', bar_data=bar_data, pie_data=pie_data, user=user)
 
 
 if __name__ == "__main__":

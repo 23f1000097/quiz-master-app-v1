@@ -122,14 +122,26 @@
                 <a href="{{ url_for('quiz_dashboard') }}">Quiz</a>
                 <a href="{{ url_for('admin_summary') }}">Summary</a>
                 <a href="{{ url_for('logout') }}">Logout</a>
-                
-            </div>
-            <form class="d-flex" action="{{ url_for('admin_dashboard') }}" method="GET">
-                <input class="form-control me-2" type="search" placeholder="Search" aria-label="Search" name="search">
-                <button class="btn btn-outline-light" type="submit">Search</button>
-            </form>
-        </div>
 
+            </div>
+            <form action="{{ url_for('admin_search') }}" method="GET" class="d-flex">
+                <input type="text" name="query" class="form-control" placeholder="Search..." value="{{ search_query }}">
+                <button type="submit" class="btn btn-primary">Search</button>
+            </form>
+            
+
+
+        </div>
+        {% if results %}
+        <h3>Search Results for "{{ search_query }}"</h3>
+        <ul>
+            {% for result in results %}
+            <li>{{ result.table }}: {{ result.details }}</li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p>No results found.</p>
+        {% endif %}
         <div class="container mt-4">
             <h2 style="color: black;">Subjects</h2>
             <div class="d-flex gap-3 flex-wrap mb-3">
@@ -184,4 +196,5 @@
         </div>
     </div>
 </body>
+
 </html>

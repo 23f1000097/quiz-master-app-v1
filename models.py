@@ -57,4 +57,4 @@ class Scores(db.Model):
     date_taken = db.Column(db.Date, nullable=False, default=date.today)
     user_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable = False)
     quiz_id = db.Column(db.Integer, db.ForeignKey('quiz.id'), nullable = False)
-
+    completed = db.Column(db.Boolean, nullable=False, default=False)
