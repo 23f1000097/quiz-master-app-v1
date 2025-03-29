@@ -13,21 +13,44 @@
 
     <style>
         body {
-            background-color: rgba(17, 17, 17, 0.2);
+            background-color: #c9c1c9;
             font-family: Arial, sans-serif;
         }
-        .navbar {
-            background-color: rgb(40, 40, 40);
-            color: beige;
+
+        .top-bar {
+            background-color: #603d60;
             padding: 10px;
-            border-top-right-radius: 30px;
-            border-top-left-radius: 30px;
+            border-radius: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px; /* Lower the navbar */
         }
+
+        .top-bar a {
+            color: white;
+            margin: 0 10px;
+            font-weight: bold;
+            text-decoration: none;
+        }
+
+        .top-bar a:hover {
+            color: #D1C4E9;
+        }
+
+        .card {
+            background-color: #b79dbc;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+
         h2 {
             text-align: center;
             font-weight: bolder;
             color: black;
         }
+
         .chart-container {
             width: 45%;
             margin: auto;
@@ -37,24 +60,24 @@
 </head>
 <body>
     <!-- Navigation Bar -->
-    <div class="navbar d-flex justify-content-between">
+    <div class="top-bar">
         <div>
-            <a href="{{ url_for('user_dashboard') }}" class="text-light">Home</a> |
-            <a href="{{ url_for('scores_dashboard') }}" class="text-light">Scores</a> |
-            <a href="{{ url_for('user_summary') }}" class="text-light">Summary</a> |
-            <a href="{{ url_for('logout') }}" class="text-light">Logout</a>
+            <a href="{{ url_for('user_dashboard') }}">Home</a>
+            <a href="{{ url_for('scores_dashboard') }}">Scores</a>
+            <a href="{{ url_for('user_summary') }}">Summary</a>
+            <a href="{{ url_for('logout') }}">Logout</a>
         </div>
-        <div><strong>Welcome, {{ user.fullname }}</strong></div>
+        
     </div>
 
     <h2>User Summary</h2>
 
-    <div style="display: flex; justify-content: space-around;">
-        <div class="chart-container">
+    <div class="d-flex justify-content-around flex-wrap">
+        <div class="card chart-container">
             <h4 class="text-center">Subject Wise No. of Quizzes</h4>
             <canvas id="barChart"></canvas>
         </div>
-        <div class="chart-container">
+        <div class="card chart-container">
             <h4 class="text-center">Quiz Attempts</h4>
             <canvas id="pieChart"></canvas>
         </div>
@@ -63,17 +86,6 @@
     <script>
         var barData = JSON.parse('{{ bar_data | tojson | safe }}') || [];
         var pieData = JSON.parse('{{ pie_data | tojson | safe }}') || [];
-    
-        console.log("Bar Data:", barData);
-        console.log("Pie Data:", pieData);
-    
-        if (!barData.length) {
-            console.warn("Warning: No bar chart data available!");
-        }
-    
-        if (!pieData.length) {
-            console.warn("Warning: No pie chart data available!");
-        }
     
         var barLabels = barData.map(item => item.subject_name);
         var barQuizzes = barData.map(item => item.No_of_Quizes);
@@ -114,6 +126,5 @@
             }
         });
     </script>
-    
 </body>
 </html>

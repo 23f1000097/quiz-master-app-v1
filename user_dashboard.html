@@ -99,28 +99,13 @@
                 <a href="{{ url_for('user_dashboard') }}">Home</a>
                 <a href="{{ url_for('scores_dashboard') }}">Scores</a>
                 <a href="{{ url_for('user_summary') }}">Summary</a>
-                <a href="{{ url_for('logout') }}" class="logout">Logout</a>
+                <a href="{{ url_for('logout') }}">Logout</a>
             </div>
-            <form action="{{ url_for('user_search') }}" method="GET" class="d-flex">
-                <input type="text" name="query" class="form-control" placeholder="Search..." value="{{ search_query }}">
-                <button type="submit" class="btn btn-primary">Search</button>
-            </form>
-
-
         </div>
-        {% if results %}
-        <h3>Search Results for "{{ search_query }}"</h3>
-        <ul>
-            {% for result in results %}
-            <li>{{ result.table }}: {{ result.details }}</li>
-            {% endfor %}
-        </ul>
-        {% else %}
-        <p>No results found.</p>
-        {% endif %}
+        
         <!-- Upcoming Quizzes Section -->
         <div class="mt-4">
-            <h2>Upcoming Quizzes</h2>
+            <h2 class="text-center">Upcoming Quizzes</h2>
             {% if upcoming_quizzes | length > 0 %}
             <table class="table">
                 <thead>
@@ -135,20 +120,25 @@
                     <tr>
                         <td>{{ quiz.level }}</td>
                         <td>{{ no_of_ques[quiz.id] }}</td>
-                        <td><a href="{{ url_for('start_quiz', quiz_id=quiz.id) }}" class="btn btn-primary">Start</a>
+                        <td>
+                            {% if no_of_ques[quiz.id] > 0 %}
+                                <a href="{{ url_for('start_quiz', quiz_id=quiz.id) }}" class="btn btn-primary">Start</a>
+                            {% else %}
+                                <span class="text-muted">No questions available</span>
+                            {% endif %}
                         </td>
                     </tr>
                     {% endfor %}
                 </tbody>
             </table>
             {% else %}
-            <p>No upcoming quizzes.</p>
+            <p class="text-center">No upcoming quizzes.</p>
             {% endif %}
         </div>
 
         <!-- Completed Quizzes Section -->
         <div class="mt-4">
-            <h2>Completed Quizzes</h2>
+            <h2 class="text-center">Completed Quizzes</h2>
 
             {% if completed_quizzes | length > 0 %}
             <table class="table table-hover">
@@ -168,7 +158,9 @@
                         <td>{{ no_of_ques[quiz.id] }}</td>
                         <td>{{ user_scores[quiz.id].date_taken.strftime('%d/%m/%Y') }}</td>
 
-                        <td><a href="{{ url_for('view_quiz', quiz_id=quiz.id) }}" class="btn btn-view">View</a></td>
+                        <td><a href="{{ url_for('view_quiz', quiz_id=quiz.id) }}" class="btn btn-view">View</a>
+                        <a href="{{ url_for('start_quiz', quiz_id=quiz.id) }}" class="btn btn-view">Reattempt quiz</a></td>
+
                     </tr>
                     {% endfor %}
                 </tbody>
